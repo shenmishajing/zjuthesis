@@ -2,5 +2,273 @@
 \chapter{外文翻译}
 
 \sectionnonum{摘要}
+\par 这篇文章提出了一个整洁且快速的目标检测模型，Fast R-CNN。和传统的R-CNN以及R-CNN的加速版本SPPnet比较，Fast R-CNN在单个训练阶段中使用多任务损失（multi-task loss）来训练网络。这个多任务损失简化了学习过程，并且提高了检测精度。不像SPPnet，Fast R-CNN所有的网络层都能在微调（fine-tuning）的时候进行更新。我们展示了这个差别对非常深的网络有实际的影响，例如VGG16，当只对网络的全连接层进行更新时，网络的mAP会不理想。和‘慢’的R-CNN相比较，Fast R-CNN在训练VGG16时比R-CNN快9倍，在测试时快213倍，且在PASCAL VOC 2012的数据集上可以达到更高的mAP。与SPPnet相比较，Fast R-CNN训练VGG16快3倍，测试快10倍并且更加精确。Fast R-CNN使用Python和C++实现，在以下的开源MIT证书上可以找到：https://github.com/rgbirshick/fast-rcnn.
 
-\section{节标题}
+\section{介绍}
+\par 在图像分类[13]和目标检测[9,18]问题上使用深度卷积网络(ConvNets)[15,17] 已经可以获得相当好的准确率。然而，和图像分类相比，目标检测问题的难度更 大，导致了其方法更加复杂。这些方法[9,10,18,24]在多阶段中训练网络，这使得 训练难度增加且耗时。
+\par 检测要求目标物体的精确定位，导致了两个主要挑战。第一，需要计算大量的 候选目标位置。为了使检测更有效，卷积特征需要和位置信息[10,18]相结合。但 不幸的是，[10]中的方法在训练时限制了网络误差的逆向传播，并在一定程度上 限制了准确率的提高。第二，候选目标位置需要更加完善以达到更高的精度。之 前的改进过程[9,18]已经在分离的学习阶段中训练。
+\par 在这篇文章中，对前沿的目标检测器，我们极大地简化了学习过程，提出了一 个单阶段训练算法，能够同时分类目标候选框和修正候选框的空间位置。另外， 我们提出一个新的方法，在训练时分享卷积特征，使得误差的逆向传播可以传递整个网络且精度提升。在提高目标检测的实效性上也做了一些改进，例如奇异值 分解，该方法在目标检测时非常有效。
+\par 本文的结果就是提出一个可以训练深度检测网络的方法，比 R-CNN[9]快 9 倍， 比 SPPnet[10]快 3 倍。在运行时，检测网络在 PASCAL VOC 2012 数据集上实现 最高准确度，其中 mAP 为 66\%(R-CNN 为 62\%)，每张图像处理时间为 0.3 秒， 该时间不包括候选框的生成。
+
+\subsection{R-CNN 和 SPPnet}
+\par R-CNN 有很好的目标检测精度，但也有显著的缺点:
+\par \begin{enumerate}
+    \item 训练是分多个阶段的:首先使用交叉熵损失来微调卷积网络;然后，采用 线性 SVMs 对卷积层提出的特征进行分类;在第三个训练过程中，学习边界框回归器。
+    \item 训练过程不管是在空间上还是时间上都消耗特别大:对于 SVM 和回归器 的训练，从每张图像上的每一个目标候选框中提取特征，并写到磁盘上。 如果使用非常深的网络，例如 VGG16，特征提取的这一过程将花费 2.5GPU-天对于 VOC07 训练集上的 5000 张数据;并且这些特征需要数百 GB 的存储空间。
+    \item 目标检测速度很慢:在测试的时候，特征也是从每张图像的每个目标候选 框中提取。使用 VGG16 检测每张图像将耗时 47 秒。
+\end{enumerate}
+\par R-CNN 很慢的原因是它需要缩放每个候选框到固定大小并且独立地处理每个 候选框区域，不共享计算。SPPnet[10]则是 R-CNN 的加速版本。在 SPPnet 中， 候选框的缩放改在了最后一个卷积层之后。这样的结构允许了在整张图像上提取 特征，而不是对每个候选区域进行特征提取。为了对一个候选框进行分类，这个 候选框向最后一个卷积特征图的映射的特征被自适应大小的池化块池化成固定 长度的特征向量。He et al[10]主张拼接多个池化块的结果。SPPnet 在测试时将 R- CNN 加速 10 到 100 倍。由于快速的特征提取，训练时间也减少了。
+\par SPP 网络也有显著的缺点。像 R-CNN 一样训练网络是一个多阶段的涉及提取 特征的网络，和对网络进行微调有损失，训练 SVM 分类器，最后拟合边界回归(bbox)。特征也写入磁盘。但与 R-CNN 不同，在[11]中提出的微调算法不能更 新在空间金字塔池之前的卷积层。不出所料，这种限制(固定的卷积层)限制了 深度网络的精度。
+
+\subsection {贡献}
+\par 我们提出一种新的训练算法，修正 R-CNN 和 SPPnet 的缺点，同时提高其速度和准确性。我们称之为 Fast R-CNN，因为它能比较快地进行训练和测试。Fast RCNN 方法有几个优点:
+\par \begin{enumerate}
+    \item 比 R-CNN 和 SPP 网络具有更高精度(mAP)的目标检测;
+    \item 训练是使用多任务损失(loss)的单阶段训练;
+    \item 训练可以更新所有网络层参数;
+    \item 特征缓存不需要写入磁盘，因此不需要占用磁盘空间。
+\end{enumerate}
+\par Fast R-CNN 使用 Python 和 C++语言编写，在 https://github.com/rbgirshick/fast-rcnn 网站下能够获得开源代码。
+
+\section{Fast R-CNN 训练}
+Fast R-CNN 网络将整个图像和一组候选框作为输入。网络首先使用几个卷积层(conv)和最大池层来处理整个图像，以产生转换特征图。然后，对于每个 候选框，感兴趣区域(RoI)池化层从特征图中提取固定长度的特征向量。每个 特征向量被送到完全连接(fc)层的中，其最终分支成两个同级输出层 :对 K 个对象类产生 softmax 概率估计加上全部捕获的“背景”类的一层以及为 K 个对象类中的每一个类别输出四个实数值的另一层。每组 4 个值编码重新修正 K 个 类中的一个的精确边界位置。图\ref{图1}给出了 Fast R-CNN 架构。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/图1.png}
+    \caption{Fast R-CNN架构。输入图像和多个感兴趣区域（RoI）被输入到完全卷积网络中。每个RoI被合并到固定大小的特征图中，然后通过完全连接的层（FC）映射到特征向量。网络对于每个RoI具有两个输出向量：softmax概率和每类边界回归偏移。该架构是端到端训练的,带有多任务丢失。}
+    \label{图1}
+\end{figure}
+
+\subsection {ROI池化层}
+\par RoI池化层使用最大池化将任何有效的感兴趣区域内的特征转换成具有H × W（例如，7×7）的固定空间范围的小特征地图，其中H和W是层超参数，独立于任何特定的RoI层。在本文中，RoI是一个矩形窗口，成为一个特征映射。每个RoI由指定其左上角（r; c）及其高度和宽度（h; w）的四元组（r; c; h; w）定义。
+\par RoI最大池化工作通过除以h × w RoI窗口变成H × W网格，子窗口大小约为h/H ×w/ W，然后将每个子窗口中的最大值合并到相应的输出网格单元中。池化操作独立应用于每个特征图通道，比如在标准最大池中。RoI层只是SPPnets [10]中使用的空间金字塔池层的特殊情况，其中只有一个金字塔层。 我们使用[10]中给出的池化子窗口计算方法。
+\subsection {使用预训练网络来初始化}
+\par 我们实验了三个预训练的ImageNet [4]网络，每个网络有五个最大池层和五到十三个卷积层（网络详细信息，请参见第4.1节）。当预训练网络初始化fast R-CNN网络时，其经历三个变换。
+\par 首先，最后的最大池化层由RoI池层代替，其通过将H和W设置为与网络的第一完全连接层兼容来配置（例如，对于VGG16，H = W = 7）。
+\par 其次，网络的最终完全连接层和softmax（经过1000路ImageNet分类训练）被前面描述的两个兄弟层代替（一个完全连接层和softmax覆盖K + 1类别和边界回归器）。
+\par 第三，网络被修改为接收两个数据输入：一批N张图像和一个R个RoIs列表。 批次大小和批次数可以在批次之间动态变化，输入图像的分辨率也可以变化：所有的conv层都按照输入分辨率的比例即时重新定型[21]。
+
+\subsection {检测微调}
+\par 在[10]中，一个3层softmax分类器进行了微调以进行检测。分类器对定长特征向量进行操作，该特征向量由应用于预先计算的整个图像的卷积特征映射的空间金字塔池（SPP）形成。由于卷积特征是离线计算的，所以微调过程不能将错误向后传播到SPP层下面的参数。对于非常深的VGG16模型（在[10]中未使用），这意味着前13层在初始化时将保持固定；只有三层分类器会被更新。
+\par 这种限制的存在使得SPP Nets可以使用为R-CNN开发的以RoI为中心的抽样程序随机梯度下降（SGD）进行训练。在以RoI为中心的抽样中，训练RoI从所有图像中所有RoI的集合中均匀采样，因此每个SGD小批量包含来自大量不同图像的样本。
+\par 消除这个限制需要通过SPP层向后传播梯度。反向传播反过来需要在每个RoIs的接受域上计算conv层，这通常是整个输入图像。这个计算太慢，需要太多的内存才行。我们建议使用像心取样的更有效的策略。在Fast R-CNN中，小批量分层次采样，首先采样图像，然后在这些图像中采用RoI。 RoI从相同的图像共享计算和内存，使培训更加高效。
+\par 除了以图像为中心的采样，Fast R-CNN还在一个微调阶段训练网络，共同优化softmax分类器和边界框回归器，而不是在三个独立的阶段训练softmax分类器，SVM和回归器[9，10]。下面将介绍此过程的组件—损失，小批量采样策略，通过RoI池层进行反向传播以及SGD超参数。
+\subsubsection{多任务损失}
+\par Fast R-CNN网络具有两个同级输出层。第一层在K+1个类别上输出离散概率分布（每RoI），$p=(p_0,\dots,p_K)$。像往常一样，p由全连接层的K+1个输出上的softmax计算。 第二兄弟层输出边界框回归偏移$t^k=(t^k_x,t^k_y,t^k_w,t^k_h)$，对于K个对象类中的每一个，由k索引。我们使用[9]中给出$t^k$的参数化，其中$t^k$指定相对于对象提议的尺度不变转换和对数空间高度/宽度偏移。
+\par 我们使用一个多任务损失L来联合训练网络的分类和边界框的回归：
+\begin{equation}
+    L(p,k^*,t,t^*)=L_{cls}(p,k^*)+\lambda[k^* \geq 1]L_{loc}(t,t^*)
+    \label{公式1}
+\end{equation}
+其中$t^*$为真实类别标签，$L_{loc}(p,k^*)=-log p_{k^*}$是标准的交叉熵损失。
+\par 第二个任务损失$L_{loc}$定义在类$k^*$,$t^*=(t^*_x,t^*_y,t^*_w,t^*_h)$的真实边界框回归目标的元组上，并且预测元组$t=(t_x,t_y,t_w,t_h)$，同样对于类$k^*$（为了符号简洁，我们省略上标$k^*$）。当$k^* \geq 1$时，指示符函数[$k^* \geq 1$]的计算结果为1，否则计算结果为0。按照惯例，特殊背景类被标记为$k^*=0$。对于背景RoI，没有真值边界框的概念，因此在这种情况下忽略$L_{loc}$。对于边界框回归，我们使用损失
+\begin{equation}
+    L_{loc}(t,t^*)=\sum_{i\in\{x,y,w,h\}}smooth_{L_1}(t_i,t^*_i)
+    \label{公式2}
+\end{equation}
+其中
+\begin{equation}
+    smooth_{L_1}(x)=
+    \begin{cases}
+        0.5x^2  & \text{if}\left|x\right|<1 \\
+        |x|-0.5 & \text{otherwise}
+    \end{cases}
+    \label{公式3}
+\end{equation}
+
+是一种平滑的$L_1$损失，其对异常值的敏感性低于R-CNN中使用的$L_2$损失。 当回归目标无限制时，$L_2$损失训练需要对学习率进行大幅调整，以防止出现梯度爆炸，公式\ref{公式3}消除了这种敏感性。
+\par 等式\ref{公式1}中的超参数控制两个任务损失之间的平衡。我们将真值回归目标标准化为零均值和单位方差。 在这种归一化下，$\lambda=1$效果很好，可用于所有实验。
+\par 我们注意到[6]使用相关损失来训练一个类不可知对象提议系统。 与我们的方法不同，[6]提倡两阶段/双网络系统，首先定位然后识别对象。 OverFeat[18]，R-CNN[9]和SPPnet[10]也训练分类器和边界框定位器，但是这些方法使用分段训练，我们表明它对于快速R-CNN来说是次优的（第5.1节）。
+\subsubsection{小批次采样}
+\par 在微调过程中，每一个SGD小批处理都是从$N=2$张图像中构造出来的，这些图像都是随机选择的(通常我们会迭代数据集的排列)。我们使用大小为$R=128$的小批量，从每个图像中抽取64个RoIs。在[9]中，我们从具有与至少IoU为0.5的真值边界框重叠的对象提议中提取$25\%$的RoIs。这些roi组成一个真实对象类,即$k^* \geq 1$。剩余的RoIs是从具有最大IoU的对象提议中取样的，它们的IoU在区间[0.1,0.5)，与[10]中一样。这些背景的例子,用标记。在训练过程中，每个样本图像都以0.5的概率水平翻转。没有使用其他数据增强。
+\subsubsection{通过RoI池层反向传播}
+\par 快速RCNN小批量从整个图像开始，因此包含将衍生物从损失函数反向传播到图像所需的所有信息。 反向传播通过RoI池化层导出衍生物，如下所述。
+\par 在正向传递期间，输入批次的$N=2$个图像由RoI池化层扩展为大小为$R=128$的输出批次。多任务损失L在R个输出上被平均。 在反向传播期间，衍生物流过RoI池化层。 RoI池化层的向后函数通过对正向传递中最大汇总x的所有RoI求和来计算损失函数相对于每个输入变量x的偏导数：
+\begin{equation}
+    \frac{\partial L}{\partial x}=\sum_{r\in R}\sum_{y\in r}[y\text{ pooled }x]\frac{\partial L}{\partial y}
+\end{equation}
+换句话说，对于每个小批量RoI r和对于r中的每个$H'W'$合并输出单元y，如果x是在合并期间分配给y的argmax（即如果y“汇总”x，就像指标函数给出的那样），则累积偏导数。 在反向传播中，偏导数$\frac{\partial L}{\partial y}$已经由RoI池化层顶层的向后函数计算。
+\subsubsection{SGD超参数}
+用于softmax分类和边界框回归的完全连接的层分别从具有标准偏差0.01和0.001的零均值高斯分布中随机初始化。所有层使用权重的每层权重的学习率为1，偏差的为2（遵循标准实践），全局学习率为0.001。在训练VOC07或VOC12时，我们运行SGD进行三万次小批量迭代，然后将学习率降低到0.0001并进行另外一万次迭代训练。当我们在更大的数据集上训练时，我们运行SGD以进行更多迭代，如稍后所述。在所有实验中使用权重为0.9且权重衰减因子为0.0005的动量项
+
+\subsection{尺度不变性}
+\par 我们探索了两种实现尺度不变对象检测的方法：（1）通过“强力”学习和（2）使用图像金字塔。这些策略遵循[10]中的两种方法。在蛮力方法中，每个图像在训练和测试期间以规范尺度处理。网络必须直接从训练数据中学习尺度不变的物体检测。
+\par 相反，多尺度方法通过图像金字塔提供对网络的近似尺度不变性。只有当探测器以最佳比例“看到”目标时，探测器才会被训练。在多尺度训练期间，我们在每次采样图像时随机采样一个尺度（[10]之后）。 由于GPU内存限制，我们仅尝试针对较小网络的多规模培训。
+
+\section{Fast R-CNN检测}
+\par 一旦对Fast R-CNN网络进行微调，检测就会比运行正向传递更多（假设对象提议是预先计算的）。网络将单尺度图像（或图像金字塔）和R个对象建议的列表作为输入进行评分。在测试时，R通常在2000左右，尽管我们会考虑它更大的情况（≈45k）。对于单尺度检测，所有RoI都索引输入批次中的单个图像（即，$n=0$）。在多尺度情况下，输入批次是图像金字塔。这里，每个RoI指定金字塔等级l（通过设置$n=1$）和该等级内的矩形。
+\par 对于每个测试RoI r，前向传递输出类后验概率分布p和一组相对于r的预测边界框偏移（每个K类获得其自己的边界框预测）。我们使用估计的概率$Pr(class=k|r)\triangleq p_k$为每个对象类k分配r的检测置信度。然后，我们使用[9]中的算法和设置为每个类独立执行非最大抑制。
+
+\subsection{截断SVD以加快检测}
+\par 对于全图像分类，与conv层相比，计算完全连接层所花费的时间较少。 相反，为了检测，要处理的RoI的数量很大，并且将近一半的正向通过时间用于计算完全连接的层（参见图2，左）。 认识到这一点，我们期待截断SVD，它提供了一种压缩完全连接层的简单方法[5,22]。 在该技术中，使用SVD由u×v权重矩阵W参数化的完全连接层近似地分解为
+\begin{equation}
+    W\approx U\Sigma_tV^T
+\end{equation}
+\par 在该因式分解中，U是包含W的前个t左奇异向量的$u\times t$矩阵，$\Sigma_t$是包含W的前t个奇异值的$t\times t$对角矩阵，并且V是包含第一个t右的$v \times t$矩阵 - W的奇异向量。 截断的SVD将参数计数从减少到$t(u+v)$，如果t远小于$min(v,u)$，这可能很重要。 为了压缩网络，对应于W的单个完全连接层被两个完全连接的层代替，它们之间没有非线性。 这些层中的第一层使用权重矩阵$\Sigma_tV^T$（并且没有偏差），第二层使用U（具有与W相关联的原始偏差）。 这种简单的压缩方法可以提供良好的检测加速，而无需额外的微调。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/表1.png}
+    \caption{VOC 2007测试检测平均精度（％）。所有方法都使用VGG16，包括SPPNet。 训练集键：07：VOC07 trainval，07 + 12：07和VOC12训练的联合。 SPPnet结果由[10]的作者准备。}
+    \label{表1}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/表2.png}
+    \caption{ VOC 2010测试检测平均精度（％）。 BabyLearning使用基于[17]的网络。 所有其他方法使用VGG16。训练集键：12：VOC12 trainval，Prop：专有数据集，12 + seg：12具有分段注释，07 ++ 12：VOC07 trainval，VOC07测试和VOC12 trainval的联合。结果: http://goo.gl/f1vtls, http://goo.gl/kyZcnW}
+    \label{表2}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/表3.png}
+    \caption{VOC 2012测试检测平均精度（％）。 BabyLearning和NUS\_NIN\_c2000使用基于[17]的网络。 所有其他方法使用VGG16。培训设置键：见\ref{表2}。结果: http://goo.gl/weNq2Z, http://goo.gl/o1tZ10}
+    \label{表3}
+\end{figure}
+
+\section{主要结果}
+\par 三个主要结果支持本文的贡献：
+\begin{itemize}
+    \item 关于VOC07,2010和2012的最新mAP
+    \item 与R-CNN和SPPnet相比，快速的训练和测试时间
+    \item 在VGG16中微调转换层非常重要
+\end{itemize}
+
+\subsection{实验设置}
+\par 我们的实验使用三种可在线获得的预先训练的ImageNet模型.第一种是来自R-CNN的CaffeNet（基本上是AlexNet [13]）[9]。 我们可选地将此CaffeNet称为模型S，用于“小”。第二个网络是来自[3]的VGG\_CNN\_M\_1024，其具有与S相同的深度，但是更宽。 我们将此网络模型称为M，称为“中等”。最终网络是来自[19]的非常深的VGG16模型。 由于该模型是最大的，我们称之为模型L.在本节中，所有实验都使用单一规模的训练和测试（详见5.2节）。
+
+\subsection{VOC 2010和2012的结果}
+\par 在这些数据集上，我们与公共领导者委员会的comp4（外部数据）轨道上的顶级方法进行比较。对于NUS\_NIN\_c2000和BabyLearning方法，目前没有相关的出版物，我们找不到有关的信息。使用的ConvNet架构;它们是Networkin-Network设计的未指定变体[16]。所有其他方法都是从相同的预先训练的VGG16网络初始化的。
+\par Fast R-CNN在VOC12上取得了最高成果，mAP为65.7\%（额外数据为68.4\%）。它比其他方法快两个数量级，这些方法都基于传统的R-CNN流水线。在VOC10上，SegDeepM [24]实现了比快速R-CNN更高的mAP（67.2\%对66.1\%）。 SegDeepM接受了VOC12 trainval加分段注释的培训;它旨在通过使用MRF推断R-CNN检测和来自O2P [1]语义分割方法的分段来提高R-CNN准确度。快速R-CNN可以换成SegDeepM，代替传统的R-CNN，这可能会带来更好的结果。当使用放大的“07 ++ 12”训练数据（在第5.3节中讨论）时，快速R-CNN的mAP增加到68.8\%，超过SegDeepM。
+
+\subsection{VOC 2007结果}
+\par 在VOC07上，我们将Fast R-CNN与R-CNN和SPPnet进行比较。所有方法都从相同的预训练VGG16网络开始，并使用边界框回归。VGG16 SPPnet结果由[10]的作者计算并在个人通信中提供。 SPPnet在训练和测试期间使用五个量表。 快速R-CNN相对于SPPnet的改进表明，即使快速R-CNN使用单一规模的训练和测试，对转换层进行微调也可以大大改善mAP（从63.1\%到66.9\%）。传统的R-CNN实现了66.0\%的mAP。考虑到快速和简单的快速R-CNN训练和测试的速度，这些结果具有实用价值，我们将在下面讨论。
+
+\subsection{训练和测试时间}
+\par 快速培训和测试时间是我们的第二个主要成果。\ref{表4}比较了快速RCNN，R-CNN和SPPnet之间的训练时间（小时），测试速率（每个图像的秒数）和VOC07上的mAP。对于VGG16，Fast R-CNN处理图像比没有截断SVD的R-CNN快146倍，比它快213倍。训练时间减少了9倍，从84小时减少到9.5小时。 与SPPnet相比，Fast RCNN训练VGG16的速度提高了2.7倍（9.5比25.5小时），并且在没有截断SVD的情况下测试速度提高了7倍，或者速度提高了10倍。快速R-CNN还可以减少数百GB的磁盘存储空间，因为它不会缓存功能。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/表4.png}
+    \caption{Fast RCNN，R-CNN和SPPnet中相同模型之间的运行时比较。 Fast R-CNN使用单尺度模式。 SPPnet使用[10]中指定的五个标度。 时间由[10]的作者提供。 时间是在Nvidia K40 GPU上测量的。}
+    \label{表4}
+\end{figure}
+\subsubsection{截断SVD}
+\par 截断的SVD可以将检测时间减少30％以上，mAP下降很少（0.3个百分点），并且在模型压缩后无需执行额外的微调。\ref{图2}说明了如何使用来自VGG16 fc6层中25088×4096矩阵的前1024个奇异值，以及来自4096×4096 fc7层的前256个奇异值如何减少运行时间，而mAP损失很小。如果在压缩后再次进行微调，则mAP的下降可能会进一步加速。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/图2.png}
+    \caption{截断SVD之前和之后VGG16的时序。 在SVD之前，完全连接的层fc6和fc7占用45\%的时间。}
+    \label{图2}
+\end{figure}
+
+\subsection{微调哪些层}
+\par 对于SPPnet论文[10]中考虑的深度较低的网络，仅对完全连接的层进行微调似乎足以获得良好的准确性。 我们在本文前面假设这个结果不适用于非常深的网络。 为了验证微调转换层对于VGG16非常重要，我们使用快速R-CNN进行微调，但冻结了13个转换层，以便只学习完全连接的层。 该消融模拟SPPnet训练限制并将mAP从66.9\%降低至61.4\%（\ref{表5}）。 该实验验证了我们的假设：通过RoI汇集层进行培训对于非常深的网络非常重要。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/表5.png}
+    \caption{限制哪些层针对VGG16微调的效果。微调$\geq$fc6模拟SPPnet训练算法[10]，但使用单一尺度。 SPPnet L结果使用五个量表以显着的速度成本获得。}
+    \label{表5}
+\end{figure}
+\par 这是否意味着所有转换层都应该进行微调？简而言之，不是的。在较小的网络（S和M）中，我们发现conv1是通用的并且与任务无关（众所周知的事实[13]）。允许conv1学习或不学习对mAP没有任何有意义的影响。对VGG16，我们发现只需更新conv3\_1及更高层（13个转换层中的9个）的层。 这种观察是务实的：（1）与从conv3\_1学习相比，从conv2\_1更新减慢了1.3（12.5对9.5小时）；（2）从conv1\_1更新超过GPU内存。从conv2\_1向上学习时，mAP的差异仅为+0.3分（\ref{表5}，最后一栏）。 本文使用VGG16微调层conv3\_1及以上的所有Fast R-CNN结果; 使用模型S和M的所有实验微调层conv2及以上。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/表6.png}
+    \caption{多任务培训（每组第四列）改进了分段培训的mAP（每组第三列）}
+    \label{表6}
+\end{figure}
+
+\section{设计评估}
+\par 我们进行了一系列基本实验，以了解Fast R-CNN与传统R-CNN和SPPnet的比较，以及评估设计决策。 我们遵循最佳实践并在PASCAL VOC07数据集上执行这些对照实验。
+
+\subsection{多任务训练有帮助吗？}
+\par 多任务培训很方便，因为它避免了管理顺序训练的任务的管道。但它也有可能改善结果，因为任务通过共享表示（ConvNet）相互影响[2]。多任务训练是否可以提高快速R-CNN中的物体检测精度？
+\par 为了测试这个问题，我们训练了仅使用等式中的分类损失$L_{cls}$）的基准网络（即在\ref{公式1}中设定$\lambda =0$）。这些基准打印在\ref{表6}中每组第一列中的模型S，M和L.请注意，这些模型没有边界框回归量。接下来（每组第二列），我们采用经过多任务丢失训练的网络（即在\ref{公式1}中设定$\lambda =1$），但我们在测试时禁用了边界框回归。这隔离了网络的分类准确性，并允许与基准进行直接的比较。
+\par 在所有三个网络中，我们观察到相对于单独的分类训练，多任务训练提高了纯粹的分类准确性。改进范围从+0.8到+1.1 mAP点，显示了多任务学习的一致积极效果。
+\par 最后，我们采用基准模型（仅使用分类损失进行训练），在边界框回归层上进行定位，并使用$L_{loc}$训练它们，同时保持所有其他网络参数冻结。每组中的第三列显示了这种分段训练方案的结果：mAP比第一列有所改进，但分段训练优于多任务训练（每组第四列）。
+
+\subsection{尺度不变性？}
+\par 我们比较了实现尺度不变物体检测的两种策略：蛮力学习（单一尺度）和图像金字塔（多尺度）。在任何一种情况下，我们将图像的尺度s定义为其最短边的长度。
+\par 所有单尺度实验都使用s = 600像素;对于某些图像，s可能小于600，因为我们将最长的图像侧限制为1000像素。选择这些值，以便在微调期间VGG16适合GPU内存。较小的模型不受内存限制，可以从较大的s值中受益，但是对于每个模型的优化不是我们主要关注的问题。我们注意到PASCAL图像通常是300×500像素，因此单尺度设置将大多数图像上采样两倍。对于我们的模型，RoI汇集层的有效步幅约为8像素。
+\par 在多尺度设置中，我们使用[10]中指定的相同的五个尺度（$s\in \{480,576,688,864,1200\}$）以便于与SPPnet进行比较。但是，我们将最长边限制为2000像素，以避免GPU内存过度运行。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/表7.png}
+    \caption{多尺度与单一尺度。SPPnet ZF（类似于模型S）的结果来自[10]。具有单一规模的较大网络提供最佳速度/准确度权衡。（由于GPU内存限制，L在我们的实现中不能使用多尺度。）}
+    \label{表7}
+\end{figure}
+\par \ref{表7}显示了使用一个或五个尺度进行训练和测试时的模型S和M.也许[10]中最令人惊讶的结果是单尺度检测几乎与多尺度检测一样好。我们的研究结果证实了他们的结果：深度ConvNets擅长直接学习规模不变性。多尺度方法在计算时间内以较高的成本提供了mAP的小幅增加（\ref{表7}）。在VGG16（型号L）的情况下，我们仅限于通过实现细节使用单个尺度。然而它实现了66.9\%的mAP，略高于传统R-CNN报道的66.0\%[8]，尽管R-CNN使用“无限”尺度，因为每个对象提案都被扭曲为规范尺寸。
+\par 由于单尺度处理提供了速度和精度之间的最佳折衷，特别是对于非常深的模型，本小节之外的所有实验都使用单尺度训练和s = 600像素的测试。
+
+\subsection{需要更多的训练数据吗？}
+\par 物体检测器的一个重要特性是它能够随着提供更多训练数据而改进。在[23]中，朱等人。为DPMs [7]深入研究了这个问题，并发现它们仅在几百到几千个训练样例之后就会饱和。在这里，我们进行了一个简单的实验，我们使用VOC12 trainval set增加了VOC07 ​​trainval set，大约将图像数量增加了三倍，达到16.5k。扩展的训练集将VOC07测试的mAP从66.9\%提高到70.0\%（\ref{表1}）。在对此数据集进行培训时，我们使用六万次小批量迭代而不是四万。
+\par 我们对VOC10和2012进行了类似的实验，为此我们构建了一个放大的数据集，其中包括来自VOC07 ​​trainval的21.5k图像和使用VOC12 trainval的测试结合。在对该数据集进行训练时，我们使用十万次小批量迭代并将学习率降低0.1每四万次迭代（而不是每三万）。对于VOC10和2012，mAP分别从66.1\%提高到68.8\%，从65.7\%提高到68.4\%。随着更多训练数据的推出，Fast R-CNN，以及可能是其他深度基于ConvNet的探测器，显然还有增长的空间。
+
+\subsection{SVM比softmax更好吗？}
+\par Fast R-CNN使用在微调期间学习的softmax分类器，而不是像事先在R-CNN和SPPnet中那样训练一对一静止线性SVM。 为了理解这种选择的影响，我们在Fast R-CNN中使用硬负挖掘实现了事后SVM训练。 我们使用与传统R-CNN相同的训练算法和超参数
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/表8.png}
+    \caption{具有softmax与SVM的Fast R-CNN（VOC07 mAP）}
+    \label{表8}
+\end{figure}
+
+\ref{表8}显示，对于所有三个网络，softmax略微优于SVM，+0.1至+0.8 mAP。 这种影响很小，但它表明，与以前的多阶段训练方法相比，“一次性”微调就足够了。 我们注意到softmax与一对二静态SVM不同，在对RoI进行评分时引入了类之间的竞争。
+
+\subsection{候选框更多更好吗？}
+\par 存在两种类型的对象检测器（粗略地说）：使用稀疏的“对象提议”集（例如，选择性搜索[20]）和使用密集集的那些，即滑动窗口。 Hosang等人最近对稀疏提议方法的元评估[11]表示“[稀疏提议]可以通过减少虚假误报来提高检测质量。”经过多年的使用，这个基本问题仍未经过测试，可能是由于检测器速度慢 培训和测试。 我们使用Fast R-CNN从两个角度处理这个问题。
+\subsubsection{更稀疏的提案}
+\par 使用选择性搜索的质量模式，我们每个图像扫描1k到10k个提议，每次重新训练和重新测试模型M。如果提议服务于纯粹的计算角色，增加每个图像的提案数量不应该损害mAP，并且可能甚至改善它。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\paperwidth]{Fast R-CNN/图3.png}
+    \caption{针对各种提案方案的VOC07测试mAP和AR}
+    \label{图3}
+\end{figure}
+
+\par 我们发现随着提案数量的增加，mAP上升然后略有下降（\ref{图3}，实线蓝线）。测量对象建议质量的最新技术是平均召回（AR）[11]。当使用每个图像固定数量的框时，AR与使用R-CNN的若干提议方法的mAP很好地相关。图3显示AR（实线红线）与mAP不完全相关，因为每个图像的盒数变化。 AR必须小心使用;由于更多的盒子而导致的AR越高并不意味着mAP会增加。
+\par Fast R-CNN可以高效，直接地评估对象提议mAP，这比代理度量更好。使用M型重新训练和重新测试需要不到2.5小时。
+\subsubsection{稠密的候选框}
+\par 当使用密集生成的盒子（超过比例，位置和纵横比）时，我们还研究了Fast R-CNN，速率约为45k / image。这个密集的集合足够丰富，当每个选择性搜索框被其最接近（在IoU）密集框中替换时，mAP仅下降1个点（至57.7\%，\ref{图3}，蓝色三角形）。
+\par 密集框的统计信息与选择性搜索框的统计信息不同。从2k选择性搜索框开始，我们在添加$1000\times\{4,6,8,10,32,45\}$个绸密提案的随机样本时测试mAP。对于每个实验，我们重新训练并重新测试模型M.当添加这些密集框时，mAP比添加更多选择性搜索框时更强烈，最终达到53.0\%。
+\par 我们还使用密集盒（45k /图像）训练和测试快速R-CNN。此设置产生的bAP为52.9\%（蓝色菱形）。我们还检查是否需要具有硬负采矿的SVM来应对密集箱分布。 SVM更糟糕：49.3\%（蓝色圆圈）。
+\subsubsection{密集与稀疏}
+\par 稀疏对象提议方法是目前Fast R-CNN的速度瓶颈。用一组密集的“滑动窗”取代它们很有吸引力，因为它基本上是免费的。然而，这些实验提供了第一个证据，即稀疏提议确实“通过减少虚假误报来提高检测质量”[11]。
+
+\section{结论}
+\par 本文提出了快速R-CNN，一种干净，快速的R-CNN和SPPnet更新。 除了报告最新检测结果外，我们还提供了详细的实验，希望能够提供新的见解。 特别值得注意的是，稀疏对象提议似乎可以提高检测器质量。 这个问题过于昂贵（及时）在过去进行探测，但在Fast R-CNN中变得切实可行。 当然，可能存在尚未发现的技术，这些技术允许密集的框执行以及稀疏的提议。 如果开发出这样的方法，可以帮助进一步加速物体检测。
+\par 致谢。我要感谢Kaiming He和Larry Zitnick的有益讨论和鼓励。
+
+\section{参考文献}
+\par [1] J. Carreira, R. Caseiro, J. Batista, and C. Sminchisescu. Semantic segmentation with second-order pooling. In ECCV, 2012. 5
+\par [2] R. Caruana. Multitask learning. Machine learning, 28(1), 1997. 7
+\par [3] K. Chatfield, K. Simonyan, A. Vedaldi, and A. Zisserman. Return of the devil in the details: Delving deep into convolutional nets. In BMVC, 2014. 5
+\par [4] J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. FeiFei. ImageNet: A large-scale hierarchical image database. In CVPR, 2009. 2
+\par [5] E. Denton, W. Zaremba, J. Bruna, Y. LeCun, and R. Fergus. Exploiting linear structure within convolutional networks for efficient evaluation. In NIPS, 2014. 4
+\par [6] D. Erhan, C. Szegedy, A. Toshev, and D. Anguelov. Scalable object detection using deep neural networks. In CVPR, 2014. 3
+\par [7] P. Felzenszwalb, R. Girshick, D. McAllester, and D. Ramanan. Object detection with discriminatively trained part based models. TPAMI, 2010. 7
+\par [8] R. Girshick, J. Donahue, T. Darrell, and J. Malik. Rich feature hierarchies for accurate object detection and semantic segmentation. arXiv preprint arXiv:1311.2524, 2013. 5, 7, 8
+\par [9] R. Girshick, J. Donahue, T. Darrell, and J. Malik. Rich feature hierarchies for accurate object detection and semantic segmentation. In CVPR, 2014. 1, 3, 4, 5, 8
+\par [10] K. He, X. Zhang, S. Ren, and J. Sun. Spatial pyramid pooling in deep convolutional networks for visual recognition. In ECCV, 2014. 1, 2, 3, 4, 5, 6, 7
+\par [11] J. H. Hosang, R. Benenson, P. Dollar, and B. Schiele. What ´ makes for effective detection proposals? arXiv preprint arXiv:1502.05082, 2015. 8, 9
+\par [12] Y. Jia, E. Shelhamer, J. Donahue, S. Karayev, J. Long, R. Girshick, S. Guadarrama, and T. Darrell. Caffe: Convolutional architecture for fast feature embedding. In Proc. of the ACM International Conf. on Multimedia, 2014. 2
+\par [13] A. Krizhevsky, I. Sutskever, and G. Hinton. ImageNet classification with deep convolutional neural networks. In NIPS, 2012. 1, 5, 6
+\par [14] S. Lazebnik, C. Schmid, and J. Ponce. Beyond bags of features: Spatial pyramid matching for recognizing natural scene categories. In CVPR, 2006. 2
+\par [15] Y. LeCun, B. Boser, J. Denker, D. Henderson, R. Howard, W. Hubbard, and L. Jackel. Backpropagation applied to handwritten zip code recognition. Neural Comp., 1989. 1
+\par [16] M. Lin, Q. Chen, and S. Yan. Network in network. In ICLR, 2014. 5
+\par [17] D. E. Rumelhart, G. E. Hinton, and R. J. Williams. Learning internal representations by error propagation. Parallel Distributed Processing, 1:318–362, 1986. 1
+\par [18] P. Sermanet, D. Eigen, X. Zhang, M. Mathieu, R. Fergus, and Y. LeCun. OverFeat: Integrated Recognition, Localization and Detection using Convolutional Networks. In ICLR, 2014. 1, 3
+\par [19] K. Simonyan and A. Zisserman. Very deep convolutional networks for large-scale image recognition. In ICLR, 2015. 1, 5
+\par [20] J. Uijlings, K. van de Sande, T. Gevers, and A. Smeulders. Selective search for object recognition. IJCV, 2013. 8
+\par [21] R. Vaillant, C. Monrocq, and Y. LeCun. Original approach for the localisation of objects in images. IEE Proc. on Vision, Image, and Signal Processing, 1994. 2
+\par [22] J. Xue, J. Li, and Y. Gong. Restructuring of deep neural network acoustic models with singular value decomposition. In Interspeech, 2013. 4
+\par [23] X. Zhu, C. Vondrick, D. Ramanan, and C. Fowlkes. Do we need more training data or better models for object detection? In BMVC, 2012. 7
+\par [24] Y. Zhu, R. Urtasun, R. Salakhutdinov, and S. Fidler. segDeepM: Exploiting segmentation and context in deep neural networks for object detection. In CVPR, 2015. 1, 5
