@@ -17,19 +17,19 @@
     % Debugging Settings
     PrintFilePath   = false,            % print tex file path for each page
     % Layout Settings
-    TwoSide         = true,             % set to false if don't need empty pages
+    TwoSide         = false,             % set to false if don't need empty pages
     % Thesis Info
-    StudentName     = 姓名,
-    StudentID       = 学号,
-    AdvisorName     = 指导教师,
-    Grade           = 2014,            % only the year, no '级'
-    Major           = 专业,
-    Department      = 学院,
-    SubmitDate      = 递交日期,
-    MajorFormat     = general,
+    StudentName     = 郑文浩,
+    StudentID       = 3170105369,
+    AdvisorName     = 吴健,
+    Grade           = 2017,            % only the year, no '级'
+    Major           = 计算机科学与技术,
+    Department      = 竺可桢学院,
+    SubmitDate      = 2021年4月7日,
+    MajorFormat     = cs,
     Degree          = undergraduate,   % 'undergraduate' or 'graduate'
     Type            = thesis,          % 'thesis'   or 'design'
-    Period          = final,           % 'proposal' or 'final'
+    Period          = proposal,           % 'proposal' or 'final'
     BlindReview     = false,           % 'false'    or 'true'
     Language        = chinese,         % 'chinese'  or 'english'
     % Graduate Thesis Info
@@ -37,9 +37,11 @@
     Topic           = 研究方向,
     ColaboratorName = 合作导师,
     % Title
-    Title           = 毕业论文/设计题目,
-    TitleEng        = {{Graduation Thesis Title}}
+    Title           = 基于半监督学习和任务分解的宫颈病变细胞检测,
+    TitleEng        = Detection of cervical lesion based on task decomposition and semi-supervised learning
 ]{zjuthesis}
+
+\usepackage{amsmath}
 
 \newcommand{\inputundergraduate}
 {
