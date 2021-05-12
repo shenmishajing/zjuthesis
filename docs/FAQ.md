@@ -3,10 +3,6 @@
 
 ## 常见问题
 
-1. Q: 聊天室/群？
-
-   A: [![Gitter](https://badges.gitter.im/zjuthesis/community.svg)](https://gitter.im/zjuthesis/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
-
 1. Q: 没有我所在专业的格式？
 
    A: 由于个人精力有限，难以查阅并编写各系具体要求的格式，如果同学们有相关需求，可以：
@@ -57,6 +53,13 @@
    A: 可以先尝试执行 `tlmgr update --self --all` 更新整个 TeXLive，然后重新编译。因为直接安装的 TeXLive 并不包含所有最新版本的宏包，一些旧版宏包的 BUG 可能会影响编译。
 
 ## 格式
+
+### 封面
+
+1. Q: 封面的标题太长，无法居中/无法换行/垂直间距有问题 [#52](https://github.com/TheNetAdmin/zjuthesis/issues/52) [#161](https://github.com/TheNetAdmin/zjuthesis/issues/161)
+
+   A: 封面的标题都位于表格环境，无法在换行的同时保证表格对齐。
+   解决方法是手动换行：在标题页的 TeX 文件内，在标题表格内手动加几行，在每一行输入相应标题的一部分。
 
 ### 参考文献与引用
 
