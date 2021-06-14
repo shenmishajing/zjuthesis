@@ -66,19 +66,16 @@
 \par 目前病变细胞检测方面相关的论文、其所使用的方法、数据集以及最终效果（部分）如\ref{检测论文}：
 \begin{table}[htbp]
     \center
-    \tiny
     \caption{病变细胞检测论文汇总}
-    \begin{tabular}{p{120pt}p{100pt}p{85pt}p{35pt}}
+    \begin{tabular}{|p{4cm}|p{4cm}|p{3cm}|p{1cm}|}
         \hline
-        论文                                                             & 模型                         & 数据                       & 效果（mAP） \\
-        \hline
-        MACD R-CNN\cite{ma2020macd}                                      & 基于mask R-CNN 的 MACD R-CNN & Herlev 数据集              & -           \\
-        Automation-Assisted Reading Method\cite{xiang2020novel}          & YOLO V3 和额外的分类器       & 私有数据12909 例，10个类别 & 0.634       \\
-        Detection in the Limited Data Scenario\cite{liang2018comparison} & Faster R-CNN + FPN           & 私有数据7086例，11个类别   & 0.263       \\
-        Detection and Classification of Cells\cite{li2019detection}      & Faster R-CNN                 & 680例，6个类别             & -           \\
-        Multitask Learning for Recognition\cite{liu2018multitask}        & VGG16                        & 73 例                      & -           \\
-        DCCL\cite{zhang2019dccl}                                         & Faster R-CNN，RetinaNet      & DCCL公开数据               & -           \\
-        \hline
+        论文                                                             & 模型                    & 数据                       & 效果（mAP） \\     \hline
+        MACD R-CNN\cite{ma2020macd}                                      & 基于mask R-CNN          & Herlev 数据集              & -           \\ \hline
+        Automation-Assisted Reading Method\cite{xiang2020novel}          & YOLO V3 和额外的分类器  & 私有数据12909 例，10个类别 & 0.634       \\ \hline
+        Detection in the Limited Data Scenario\cite{liang2018comparison} & Faster R-CNN + FPN      & 私有数据7086例，11个类别   & 0.263       \\ \hline
+        Detection and Classification of Cells\cite{li2019detection}      & Faster R-CNN            & 680例，6个类别             & -           \\ \hline
+        Multitask Learning for Recognition\cite{liu2018multitask}        & VGG16                   & 73 例                      & -           \\ \hline
+        DCCL\cite{zhang2019dccl}                                         & Faster R-CNN，RetinaNet & DCCL公开数据               & -           \\ \hline
     \end{tabular}
     \label{检测论文}
 \end{table}
