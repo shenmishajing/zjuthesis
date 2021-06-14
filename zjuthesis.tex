@@ -41,6 +41,10 @@
     TitleEng        = Detection of cervical lesion based on semi-supervised learning and task decomposition
 ]{zjuthesis}
 
+%% Uncomment the following lines if you need multi line titles on cover pages
+% \titletwolines{毕业论文题目第一行}{毕业论文题目第二行}
+% \titleengtwolines{English Title Line One}{Englisht Title Line Two}
+
 \newcommand{\inputundergraduate}
 {
     \ifthenelse{\equal{\Period}{final}}
@@ -64,6 +68,7 @@
             {\part{毕业论文}}
         
         \inputbody{final/content}
+        \inputbody{final/post}
 
         \poststyle
         \inputpage{final/post}

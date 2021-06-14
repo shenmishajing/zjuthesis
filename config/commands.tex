@@ -4,26 +4,10 @@
 {
     % TwoSide settings
     % Use default `\cleardoublepage'
-    \makeatletter
-    \newcommand{\cleardoublestylepage}[1]
-    {
-        \clearpage
-        \if@twoside
-            \ifodd\c@page
-                % do nothing
-            \else
-                \thispagestyle{#1} ~
-                \newpage
-                \thispagestyle{#1}
-            \fi
-        \fi
-    }
-    \makeatother
 }
 {
     % OneSide settings
     \renewcommand{\cleardoublepage}{\clearpage}
-    \newcommand{\cleardoublestylepage}[1]{\clearpage}
 }
 
 \newcommand{\bful}[1]{{\bfseries\uline{#1}}}
@@ -115,7 +99,7 @@
     
     \newcommand{\inputbody}[1]
     {
-        \input{./body/graduate/#1}
+        \checkandinput{body}{#1}
     }
 
     \newcommand{\chapternonum}[1]
@@ -268,3 +252,9 @@
 }
 }
 {}
+
+% From: https://tex.stackexchange.com/questions/395856/switching-tocdepth-in-the-middle-of-a-document
+\newcommand{\changelocaltocdepth}[1]{%
+  \addtocontents{toc}{\protect\setcounter{tocdepth}{#1}}%
+  \setcounter{tocdepth}{#1}%
+}
